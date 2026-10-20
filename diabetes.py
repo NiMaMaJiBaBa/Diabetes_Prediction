@@ -1,6 +1,73 @@
+"""Streamlit diabetes classification demo."""
+from pathlib import Path
+
+import matplotlib.pyplot as plt
+import pandas as pd
+import streamlit as st
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.linear_model import LogisticRegression
+from sklearn.metrics import (
+    ConfusionMatrixDisplay,
+    accuracy_score,
+    auc,
+    f1_score,
+    precision_score,
+    recall_score,
+    roc_curve,
+)
+from sklearn.model_selection import train_test_split
+from sklearn.tree import DecisionTreeClassifier
+
+
+st.set_page_config(page_title="Diabetes Prediction", layout="wide")
+
+
+@st.cache_data
+def load_data(csv_path):
+    return pd.read_csv(csv_path)
+
+
+@st.cache_resource(show_spinner="正在訓練模型...")
+def get_trained_model(classifier, parameters, x_train, y_train):
+    if classifier == "Decision Tree":
+        criterion, splitter = parameters
+        model = DecisionTreeClassifier(
+            criterion=criterion, splitter=splitter, random_state=0
+        )
+    elif classifier == "Logistic Regression":
+        c, max_iter = parameters
+        model = LogisticRegression(
+            C=c, max_iter=max_iter, random_state=0
+        )
+    else:
+        n_estimators, max_depth, bootstrap = parameters
+        model = RandomForestClassifier(
+            n_estimators=n_estimators,
+            max_depth=max_depth,
+            bootstrap=bootstrap,
+            random_state=0,
+            n_jobs=-1,
+        )
+    model.fit(x_train, y_train)
+    return model
+
+
+def plot_metrics(metrics, model, x_test, y_test, class_names):
+    if "Confusion Matrix" in metrics:
+        st.subheader("Confusion Matrix")
+        fig, ax = plt.subplots()
+        ConfusionMatrixDisplay.from_estimator(
+            model, x_test, y_test,
+            labels=[0, 1], display_labels=class_names,
+            cmap="Blues", ax=ax, colorbar=False,
+        )
+        st.pyplot(fig)
+        plt.close(fig)
+
+    if "ROC Curve" in metrics:
         st.subheader("ROC Curve")
-        if len(set(y_test)) < 2:
-            st.warning("測試資料僅有一個類別，無法繪製 ROC Curve。")
+        if len(set(y_test)) < 2 or 1 not in model.classes_:
+            st.warning("測試資料類別不足，無法繪製 ROC Curve。")
         else:
             positive_idx = list(model.classes_).index(1)
             y_prob = model.predict_proba(x_test)[:, positive_idx]
@@ -30,6 +97,13 @@ def main():
 
     x = df.drop(columns=["Outcome"])
     y = df["Outcome"]
+    if x.empty or x.isna().any().any() or not all(pd.api.types.is_numeric_dtype(dtype) for dtype in x.dtypes):
+        st.error("特徵欄位必須是數值且不能有缺漏值，請檢查 diabetes.csv。")
+        st.stop()
+    if y.isna().any() or not set(y.unique()).issubset({0, 1}) or y.nunique() < 2:
+        st.error("Outcome 欄位必須同時包含 0 和 1，且不能有缺漏值。")
+        st.stop()
+
     class_names = ["Non-Diabetes", "Diabetes"]
 
     st.sidebar.title("Model Selection Panel")
